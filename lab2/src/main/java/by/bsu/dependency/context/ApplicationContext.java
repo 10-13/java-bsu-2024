@@ -49,6 +49,8 @@ public interface ApplicationContext {
      */
     <T> T getBean(Class<T> clazz);
 
+
+
     /**
      * Проверяет, имеет ли бин скоуп {@code SINGLETON}
      *

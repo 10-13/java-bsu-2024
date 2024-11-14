@@ -2,6 +2,7 @@ package by.bsu.dependency.example;
 
 import by.bsu.dependency.context.ApplicationContext;
 import by.bsu.dependency.context.HardCodedSingletonApplicationContext;
+import by.bsu.dependency.context.building.DependencyGraphFactory;
 
 public class Main {
 
@@ -16,6 +17,8 @@ public class Main {
 
         firstBean.doSomething();
         otherBean.doSomething();
+
+        var a = DependencyGraphFactory.CreateDependencyBuilder(OtherBean.class);
 
         // Метод падает, так как в классе HardCodedSingletonApplicationContext не реализовано внедрение зависимостей
         // otherBean.doSomethingWithFirst();

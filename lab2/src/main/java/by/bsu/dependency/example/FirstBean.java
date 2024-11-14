@@ -1,8 +1,9 @@
 package by.bsu.dependency.example;
 
 import by.bsu.dependency.annotation.Bean;
+import by.bsu.dependency.annotation.BeanScope;
 
-@Bean(name = "firstBean")
+@Bean(name = "firstBean", scope = BeanScope.PROTOTYPE)
 public class FirstBean {
 
     void printSomething() {

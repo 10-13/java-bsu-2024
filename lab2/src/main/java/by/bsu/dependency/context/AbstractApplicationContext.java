@@ -2,7 +2,6 @@ package by.bsu.dependency.context;
 
 import by.bsu.dependency.annotation.Bean;
 import by.bsu.dependency.annotation.BeanScope;
-import by.bsu.dependency.annotation.Inject;
 import by.bsu.dependency.annotation.PostConstruct;
 import by.bsu.dependency.context.building.DependencyBuilder;
 import by.bsu.dependency.context.building.DependencyGraphFactory;
@@ -12,61 +11,26 @@ import by.bsu.dependency.exceptions.*;
 import java.lang.reflect.InvocationTargetException;
 import java.util.*;
 
-/*
-Start pattern:
-- instantiate static members
-- create deps builders for static members
-- inject all builder
-- run post constructors for static members
-- run post constructors for created prototypes
- */
 
 public abstract class AbstractApplicationContext implements ApplicationContext {
-    @Override
-    public void start() {
-        List<DependencyBuilder> builders = new ArrayList<>();
+    private final HashMap<String, Class<?>> NamesToTypes_ = new HashMap<>();
+    private final HashMap<Class<?>, BeanScope> TypeScopes_ = new HashMap<>();
+    private final HashMap<Class<?>, Object> InstantiatedBeans_ = new HashMap<>();
 
-        this.ClassedBeans_.forEach((type, scope) -> builders.add(DependencyGraphFactory.CreateDependencyBuilder(type)));
-
-        builders.forEach(builder -> builder.InstantiateDependencies(CreateProvider()));
-
-        builders.forEach(DependencyBuilder::BuildGraph);
-
-        builders.forEach(builder -> builder.PrototypeDependenciesStream().forEach(this::PostConstruct_));
-
-        builders.forEach(builder -> InstantiatedBeans_.put(builder.getClass(), PostConstruct_(builder.GetObject())));
-
-        Status_ = ContextStatus.STARTED;
-    }
+    private ContextStatus Status_ = ContextStatus.NOT_STARTED;
 
     @Override
     public boolean isRunning() {
         return Status_ == ContextStatus.STARTED;
     }
-
     @Override
     public boolean containsBean(String name) {
-        AssertRunning_();
-        return BeanTemplates_.containsKey(name);
+        CheckContextRunning_();
+        return NamesToTypes_.containsKey(name);
     }
-
     @Override
     public Object getBean(String name) {
         return getBean(GetBeanType(name));
-    }
-
-    @Override
-    public <T> T getBean(Class<T> clazz) {
-        AssertRunning_();
-        CheckBeanCorrectness_(clazz);
-        if (ClassedBeans_.get(clazz) == BeanScope.SINGLETON)
-            return (T)InstantiatedBeans_.get(clazz);
-
-        var bld = DependencyGraphFactory.CreateDependencyBuilder(clazz);
-        bld.InstantiateDependencies(CreateProvider());
-        bld.BuildGraph();
-        bld.PrototypeDependenciesStream().forEach(this::PostConstruct_);
-        return (T)PostConstruct_(bld.GetObject());
     }
 
     @Override
@@ -74,48 +38,67 @@ public abstract class AbstractApplicationContext implements ApplicationContext {
         CheckBeanCorrectness_(name);
         return GetBeanScope(GetBeanType(name)) == BeanScope.SINGLETON;
     }
-
     @Override
     public boolean isPrototype(String name) {
         CheckBeanCorrectness_(name);
         return GetBeanScope(GetBeanType(name)) == BeanScope.PROTOTYPE;
     }
 
-    private final HashMap<String, Class<?>> BeanTemplates_ = new HashMap<>();
-    private final HashMap<Class<?>, BeanScope> ClassedBeans_ = new HashMap<>();
-    private final HashMap<Class<?>, Object> InstantiatedBeans_ = new HashMap<>();
-
-    private ContextStatus Status_ = ContextStatus.NOT_STARTED;
-
-    public static class BeanHelper {
-        public static String CombineName(Class<?> type) {
-            return Character.toLowerCase(type.getSimpleName().charAt(0)) + type.getSimpleName().substring(1);
-        }
-    }
-
     protected void AddBean(Class<?> type) {
         var bean = type.getDeclaredAnnotation(Bean.class);
-        BeanTemplates_.put(
+        NamesToTypes_.put(
                 bean.name().isEmpty() ? BeanHelper.CombineName(type) : bean.name(),
                 type);
-        ClassedBeans_.put(type, bean.scope());
+        TypeScopes_.put(type, bean.scope());
+    }
+    @Override
+    public void start() {
+        List<DependencyBuilder> builders = new ArrayList<>();
+
+        this.TypeScopes_.entrySet().stream()
+                .filter(entry -> entry.getValue() == BeanScope.SINGLETON)
+                .forEach(type -> builders.add(DependencyGraphFactory.CreateDependencyBuilder(type.getKey())));
+
+        builders.forEach(builder -> builder.InstantiateDependencies(CreateDependencyProvider()));
+        builders.forEach(DependencyBuilder::BuildGraph);
+        builders.forEach(builder -> builder.PrototypeDependenciesStream().forEach(this::PostConstruct_));
+        builders.forEach(builder -> InstantiatedBeans_.put(builder.getClass(), PostConstruct_(builder.GetObject())));
+
+        Status_ = ContextStatus.STARTED;
+    }
+    @Override
+    public <T> T getBean(Class<T> clazz) {
+        CheckContextRunning_();
+        CheckBeanCorrectness_(clazz);
+        if (TypeScopes_.get(clazz) == BeanScope.SINGLETON)
+            return (T)InstantiatedBeans_.get(clazz);
+
+        var bld = DependencyGraphFactory.CreateDependencyBuilder(clazz);
+        bld.InstantiateDependencies(CreateDependencyProvider());
+        bld.BuildGraph();
+        bld.PrototypeDependenciesStream().forEach(this::PostConstruct_);
+        return (T)PostConstruct_(bld.GetObject());
     }
 
     private Class<?> GetBeanType(String name) {
-        return BeanTemplates_.get(name);
+        return NamesToTypes_.get(name);
     }
-    private BeanScope GetBeanScope(Class<?> type) { return ClassedBeans_.get(type); }
+    private BeanScope GetBeanScope(Class<?> type) {
+        return TypeScopes_.get(type);
+    }
 
     private void CheckBeanCorrectness_(Class<?> type) {
-        if (!ClassedBeans_.containsKey(type))
+        if (!TypeScopes_.containsKey(type))
             throw new ApplicationContextDoNotContainsSuchBeanDefinitionException(BeanHelper.CombineName(type));
     }
-
     private void CheckBeanCorrectness_(String name) {
-        if (!BeanTemplates_.containsKey(name))
+        if (!NamesToTypes_.containsKey(name))
             throw new ApplicationContextDoNotContainsSuchBeanDefinitionException(name);
     }
-
+    private void CheckContextRunning_() {
+        if (!isRunning())
+            throw new ApplicationContextNotStartedException();
+    }
 
     private Object PostConstruct_(Object obj) {
         Arrays.stream(obj.getClass().getDeclaredMethods())
@@ -131,7 +114,7 @@ public abstract class AbstractApplicationContext implements ApplicationContext {
         return obj;
     }
 
-    private DependencyProvider CreateProvider() {
+    private DependencyProvider CreateDependencyProvider() {
         return new DependencyProvider() {
             private final InstanceFabric Fabric_ = new InstanceFabric();
 
@@ -142,13 +125,19 @@ public abstract class AbstractApplicationContext implements ApplicationContext {
         };
     }
 
-    private void AssertRunning_() {
-        if (!isRunning())
-            throw new ApplicationContextNotStartedException();
+    private enum ContextStatus {
+        NOT_STARTED,
+        STARTED
     }
 
-    class InstanceFabric {
-        public static Object InstantiateType(Class<?> type) {
+    private static class BeanHelper {
+        public static String CombineName(Class<?> type) {
+            return Character.toLowerCase(type.getSimpleName().charAt(0)) + type.getSimpleName().substring(1);
+        }
+    }
+
+    private class InstanceFabric {
+        public Object InstantiateType(Class<?> type) {
             try {
                 var ctor = type.getDeclaredConstructor();
                 ctor.setAccessible(true);
@@ -168,15 +157,10 @@ public abstract class AbstractApplicationContext implements ApplicationContext {
             return InstantiatedBeans_.get(type);
         }
         public Object InstantiateBean(Class<?> type) {
-            if (!ClassedBeans_.containsKey(type))
+            if (!TypeScopes_.containsKey(type))
                 throw new ApplicationContextDoNotContainsSuchBeanDefinitionException(type.getName());
 
-            return  InstantiateBean(type, ClassedBeans_.get(type));
+            return  InstantiateBean(type, TypeScopes_.get(type));
         }
-    }
-
-    protected enum ContextStatus {
-        NOT_STARTED,
-        STARTED
     }
 }

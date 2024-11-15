@@ -10,9 +10,15 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 
 public class AutoScanApplicationContext extends AbstractApplicationContext {
+    public AutoScanApplicationContext(String packageName) {
+        findAllClassesUsingClassLoader(packageName).forEach(this::AddBean);
+    }
+
     private List<? extends Class<?>> findAllClassesUsingClassLoader(String packageName) {
         InputStream stream = ClassLoader.getSystemClassLoader()
                 .getResourceAsStream(packageName.replaceAll("[.]", "/"));
+        if (stream == null)
+            throw new RuntimeException("Resource not found");
         BufferedReader reader = new BufferedReader(new InputStreamReader(stream));
         return reader.lines()
                 .filter(line -> line.endsWith(".class"))
@@ -29,9 +35,5 @@ public class AutoScanApplicationContext extends AbstractApplicationContext {
         } catch (ClassNotFoundException e) {
             return null;
         }
-    }
-
-    public AutoScanApplicationContext(String packageName) {
-        findAllClassesUsingClassLoader(packageName).forEach(this::AddBean);
     }
 }

@@ -4,6 +4,8 @@ import by.bsu.dependency.annotation.Bean;
 import by.bsu.dependency.annotation.BeanScope;
 import by.bsu.dependency.annotation.Inject;
 import by.bsu.dependency.annotation.PostConstruct;
+import by.bsu.dependency.context.building.DependencyBuilder;
+import by.bsu.dependency.context.building.DependencyGraphFactory;
 import by.bsu.dependency.context.building.DependencyProvider;
 import by.bsu.dependency.exceptions.*;
 
@@ -22,11 +24,18 @@ Start pattern:
 public abstract class AbstractApplicationContext implements ApplicationContext {
     @Override
     public void start() {
-        this.ClassedBeans_.forEach((type, scope) -> {
-            if (scope == BeanScope.SINGLETON)
-                this.InstantiatedBeans_.put(type, Instantiate_(type));
-        });
-        this.InstantiatedBeans_.forEach((idea, obj) -> PostConstruct_(Inject_(obj)));
+        List<DependencyBuilder> builders = new ArrayList<>();
+
+        this.ClassedBeans_.forEach((type, scope) -> builders.add(DependencyGraphFactory.CreateDependencyBuilder(type)));
+
+        builders.forEach(builder -> builder.InstantiateDependencies(CreateProvider()));
+
+        builders.forEach(DependencyBuilder::BuildGraph);
+
+        builders.forEach(builder -> builder.PrototypeDependenciesStream().forEach(this::PostConstruct_));
+
+        builders.forEach(builder -> InstantiatedBeans_.put(builder.getClass(), PostConstruct_(builder.GetObject())));
+
         Status_ = ContextStatus.STARTED;
     }
 
@@ -43,16 +52,21 @@ public abstract class AbstractApplicationContext implements ApplicationContext {
 
     @Override
     public Object getBean(String name) {
-        AssertRunning_();
-        CheckBeanCorrectness_(name);
-        return GetBean(GetBeanType(name));
+        return getBean(GetBeanType(name));
     }
 
     @Override
     public <T> T getBean(Class<T> clazz) {
         AssertRunning_();
         CheckBeanCorrectness_(clazz);
-        return (T)GetBean(clazz);
+        if (ClassedBeans_.get(clazz) == BeanScope.SINGLETON)
+            return (T)InstantiatedBeans_.get(clazz);
+
+        var bld = DependencyGraphFactory.CreateDependencyBuilder(clazz);
+        bld.InstantiateDependencies(CreateProvider());
+        bld.BuildGraph();
+        bld.PrototypeDependenciesStream().forEach(this::PostConstruct_);
+        return (T)PostConstruct_(bld.GetObject());
     }
 
     @Override
@@ -102,11 +116,6 @@ public abstract class AbstractApplicationContext implements ApplicationContext {
             throw new ApplicationContextDoNotContainsSuchBeanDefinitionException(name);
     }
 
-    private Object GetBean(Class<?> type) {
-        if (GetBeanScope(type) == BeanScope.SINGLETON)
-            return InstantiatedBeans_.get(type);
-        return PostConstruct_(Inject_(Instantiate_(type)));
-    }
 
     private Object PostConstruct_(Object obj) {
         Arrays.stream(obj.getClass().getDeclaredMethods())
@@ -122,34 +131,26 @@ public abstract class AbstractApplicationContext implements ApplicationContext {
         return obj;
     }
 
-    private Object Inject_(Object obj) {
-        Arrays.stream(obj.getClass().getDeclaredFields())
-                .filter(fld->fld.isAnnotationPresent(Inject.class))
-                .forEach(fld -> {
-                    fld.setAccessible(true);
-                    CheckBeanCorrectness_(fld.getType());
-                    try {
-                        fld.set(obj, GetBean(fld.getType()));
-                    } catch (IllegalAccessException ex) {
-                        throw new ApplicationContextInjectFailure(fld.getName(), ex);
-                    }
-                });
-        return obj;
+    private DependencyProvider CreateProvider() {
+        return new DependencyProvider() {
+            private final InstanceFabric Fabric_ = new InstanceFabric();
+
+            @Override
+            public Object GetDependencyUninitializedInstance(Class<?> type) {
+                return Fabric_.InstantiateBean(type);
+            }
+        };
     }
 
-    private Object Instantiate_(Class<?> type) {
-        try {
-            return type.getDeclaredConstructor(new Class[]{}).newInstance();
-        } catch (NoSuchMethodException | InvocationTargetException |
-                 InstantiationException | IllegalAccessException e) {
-            throw new ApplicationContextInstantiateFailure(type.getName(), e);
-        }
+    private void AssertRunning_() {
+        if (!isRunning())
+            throw new ApplicationContextNotStartedException();
     }
 
     class InstanceFabric {
         public static Object InstantiateType(Class<?> type) {
             try {
-                var ctor = type.getConstructor();
+                var ctor = type.getDeclaredConstructor();
                 ctor.setAccessible(true);
                 return ctor.newInstance();
             } catch (InvocationTargetException | InstantiationException | IllegalAccessException |
@@ -177,22 +178,5 @@ public abstract class AbstractApplicationContext implements ApplicationContext {
     protected enum ContextStatus {
         NOT_STARTED,
         STARTED
-    }
-
-    private DependencyProvider CreateProvider() {
-        return new DependencyProvider() {
-            private final InstanceFabric Fabric_ = new InstanceFabric();
-
-            @Override
-            public Object GetDependencyUninitializedInstance(Class<?> type) {
-                return Fabric_.InstantiateBean(type);
-            }
-        };
-    }
-
-
-    private void AssertRunning_() {
-        if (!isRunning())
-            throw new ApplicationContextNotStartedException();
     }
 }

@@ -29,5 +29,13 @@ class GraphBuildingTests {
         assertThat(Objects.nonNull(bean.c)).isTrue();
     }
 
-    // TODO: Add more test
+    // TODO: Tests to be added:
+    //  - Recursion:
+    //    - Recursion prototypes [ERR:getBean]
+    //    - Indirect recursion prototypes (2 variants) [ERR:getBean]
+    //    - Recursion singletons [SUC]
+    //    - Indirect recursion prototypes inside singleton [ERR:start]
+    //  - Order:
+    //    - Ordered post constructors
+    //    - Post constructors called
 }

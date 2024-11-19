@@ -62,7 +62,7 @@ public abstract class AbstractApplicationContext implements ApplicationContext {
         builders.forEach(builder -> builder.InstantiateDependencies(CreateDependencyProvider()));
         builders.forEach(DependencyBuilder::BuildGraph);
         builders.forEach(builder -> builder.PrototypeDependenciesStream().forEach(this::PostConstruct_));
-        builders.forEach(builder -> InstantiatedBeans_.put(builder.getClass(), PostConstruct_(builder.GetObject())));
+        builders.forEach(builder -> PostConstruct_(builder.GetObject()));
 
         Status_ = ContextStatus.STARTED;
     }

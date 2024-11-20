@@ -46,10 +46,17 @@ public abstract class AbstractApplicationContext implements ApplicationContext {
 
     protected void AddBean(Class<?> type) {
         var bean = type.getDeclaredAnnotation(Bean.class);
-        NamesToTypes_.put(
-                bean.name().isEmpty() ? BeanHelper.CombineName(type) : bean.name(),
-                type);
-        TypeScopes_.put(type, bean.scope());
+        if (bean != null) {
+            NamesToTypes_.put(
+                    bean.name().isEmpty() ? BeanHelper.CombineName(type) : bean.name(),
+                    type);
+            TypeScopes_.put(type, bean.scope());
+        } else {
+            NamesToTypes_.put(
+                    BeanHelper.CombineName(type),
+                    type);
+            TypeScopes_.put(type, BeanScope.SINGLETON);
+        }
     }
     @Override
     public void start() {

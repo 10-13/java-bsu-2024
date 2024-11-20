@@ -2,24 +2,21 @@ package by.bsu.dependency.context.graphbuilding;
 
 import by.bsu.dependency.context.ApplicationContext;
 import by.bsu.dependency.context.AutoScanApplicationContext;
+import by.bsu.dependency.context.HardCodedSingletonApplicationContext;
+import by.bsu.dependency.exceptions.ApplicationContextRecursiveDependencyException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.Objects;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class GraphBuildingTests {
-
-    private ApplicationContext applicationContext;
-
-    @BeforeEach
-    void init() {
-        applicationContext = new AutoScanApplicationContext(GraphBuildingTests.class.getPackageName());
-    }
-
     @Test
     void testIsPrototypesBuilding() {
+        ApplicationContext applicationContext = new HardCodedSingletonApplicationContext(ComplexPrototypeBean.class, SimplePrototypeBean.class);
+
         applicationContext.start();
 
         var bean = applicationContext.getBean(ComplexPrototypeBean.class);
@@ -29,13 +26,61 @@ class GraphBuildingTests {
         assertThat(Objects.nonNull(bean.c)).isTrue();
     }
 
-    // TODO: Tests to be added:
-    //  - Recursion:
-    //    - Recursion prototypes [ERR:getBean]
-    //    - Indirect recursion prototypes (2 variants) [ERR:getBean]
-    //    - Recursion singletons [SUC]
-    //    - Indirect recursion prototypes inside singleton [ERR:start]
-    //  - Order:
-    //    - Ordered post constructors
-    //    - Post constructors called
+    @Test
+    void testPrototypesSimpleRecursion() {
+        ApplicationContext applicationContext = new HardCodedSingletonApplicationContext(
+                SimpleRecursivePrototypeBean.class);
+
+        applicationContext.start();
+
+        assertThrows(
+                ApplicationContextRecursiveDependencyException.class,
+                () -> applicationContext.getBean(SimpleRecursivePrototypeBean.class)
+        );
+    }
+
+    @Test
+    void testPrototypesIndirectRecursion() {
+        ApplicationContext applicationContext = new HardCodedSingletonApplicationContext(
+                FirstIndirectRecursivePrototypeBean.class, SecondIndirectRecursivePrototypeBean.class, ThirdIndirectRecursivePrototypeBean.class);
+
+        applicationContext.start();
+
+        assertThrows(
+                ApplicationContextRecursiveDependencyException.class,
+                () -> applicationContext.getBean(FirstIndirectRecursivePrototypeBean.class)
+        );
+        assertThrows(
+                ApplicationContextRecursiveDependencyException.class,
+                () -> applicationContext.getBean(SecondIndirectRecursivePrototypeBean.class)
+        );
+        assertThrows(
+                ApplicationContextRecursiveDependencyException.class,
+                () -> applicationContext.getBean(ThirdIndirectRecursivePrototypeBean.class)
+        );
+    }
+
+    @Test
+    void testSingletonSimpleRecursion() {
+        ApplicationContext applicationContext = new HardCodedSingletonApplicationContext(SimpleRecursiveSingletonBean.class);
+
+        applicationContext.start();
+    }
+
+    @Test
+    void testSingletonIndirectRecursion() {
+        ApplicationContext applicationContext = new HardCodedSingletonApplicationContext(FirstIndirectRecursiveSingletonBean.class, SecondIndirectRecursiveSingletonBean.class);
+
+        applicationContext.start();
+    }
+
+    @Test
+    void testPrototypeIndirectRecursionInsideSingleton() {
+        ApplicationContext applicationContext = new HardCodedSingletonApplicationContext(SimpleRecursivePrototypeInsideSingletonBean.class, SimpleRecursivePrototypeBean.class);
+
+        assertThrows(
+                ApplicationContextRecursiveDependencyException.class,
+                applicationContext::start
+        );
+    }
 }

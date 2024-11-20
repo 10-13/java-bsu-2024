@@ -19,7 +19,7 @@ public class DependencyGraphFactory {
             Arrays.stream(l_type.getDeclaredFields())
                     .filter(fld -> fld.isAnnotationPresent(Inject.class))
                     .forEach(el -> {
-                        if (branches.get(ind).IsRecursive(branches, el.getType()))
+                        if (branches.get(ind).Type.getDeclaredAnnotation(Bean.class).scope() != BeanScope.SINGLETON && branches.get(ind).IsRecursive(branches, el.getType()))
                             throw new ApplicationContextRecursiveDependencyException(type, el.getType());
                         branches.add(new DependencyBuilder.Branch(el.getType(),el,ind));
                     });
